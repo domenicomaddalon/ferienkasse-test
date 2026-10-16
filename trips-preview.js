@@ -20,6 +20,7 @@ async function refresh(){
 async function openTrip(trip){
  selected=trip;$('detail').hidden=false;$('triptitle').textContent=trip.name+' ('+trip.currency+')';
  await loadDetail();
+ $('detail').scrollIntoView({behavior:'smooth',block:'start'});
 }
 async function loadDetail(){
  if(!selected)return;
