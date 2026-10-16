@@ -5,3 +5,6 @@
 /* iPhone: alle Bereiche ohne horizontales Wischen sichtbar machen */
 .tabs{flex-wrap:wrap;overflow:visible;gap:7px}.tabs button{flex:1 1 auto;min-width:calc(33.333% - 7px);padding:10px 7px;font-size:13px}@media(max-width:390px){.tabs button{min-width:calc(50% - 7px)}}
 #rateStatus{margin:10px 0;overflow-wrap:anywhere}
+
+/* Respect HTML hidden attribute even when author styles set display. */
+[hidden]{display:none!important}
