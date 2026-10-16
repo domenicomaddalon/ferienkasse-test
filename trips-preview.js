@@ -51,11 +51,11 @@ $('personform').addEventListener('submit',async event=>{
  catch(error){status('Person konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
 });
 $('expenseform').addEventListener('submit',async event=>{
- event.preventDefault();if(!selected||!people.some(p=>p.id===$('payer').value))return;const button=$('expensesave');button.disabled=true;
- try{const amount=$('amount').value;if(!/^[0-9]+(?:\.[0-9]{1,2})?$/.test(amount))throw new Error('Bitte Betrag mit maximal zwei Dezimalstellen eingeben.');const cents=Math.round(Number(amount)*100);if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
+ event.preventDefault();const report=message=>{$('expenseStatus').textContent=message;status(message);};if(!selected){report('Bitte zuerst eine Reise öffnen.');return;}if(!people.some(p=>p.id===$('payer').value)){report('Bitte eine zahlende Person auswählen.');return;}if(!$('description').value.trim()){report('Bitte eine Beschreibung eingeben.');return;}if(!$('date').value){report('Bitte ein Datum auswählen.');return;}const button=$('expensesave');button.disabled=true;report('Ausgabe wird gespeichert …');
+ try{const amount=$('amount').value.trim().replace(',','.');if(!/^[0-9]+(?:\.[0-9]{1,2})?$/.test(amount))throw new Error('Bitte Betrag mit maximal zwei Dezimalstellen eingeben.');const cents=Math.round(Number(amount)*100);if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
  const {error}=await client.from('fk_expenses').insert({trip_id:selected.id,person_id:$('payer').value,description:$('description').value.trim(),amount_cents:cents,currency:selected.currency,expense_date:$('date').value});
- if(error)throw error;$('description').value='';$('amount').value='';await loadDetail();
- }catch(error){status('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
+ if(error)throw error;$('description').value='';$('amount').value='';await loadDetail();report('Ausgabe erfolgreich in Supabase gespeichert.');
+ }catch(error){report('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
 });
 $('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
 async function init(){const {data:{session},error}=await client.auth.getSession();if(error||!session){showSignedOut();return;}$('account').textContent='Angemeldet als '+(session.user.email||'Benutzer');$('workspace').hidden=false;$('results').hidden=false;$('login').hidden=true;await refresh();}
