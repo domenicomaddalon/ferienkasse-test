@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="de-CH"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ferienkasse 1.3 – Anmeldungstest</title><link rel="stylesheet" href="./style.css"></head>
 <body><header><div class="brand"><span class="logo">✈</span><div><strong>Ferienkasse 1.3</strong><small>Separater Anmeldungstest – keine Migration</small></div></div></header>
-<main><section class="card"><h2>Anmeldung per E-Mail-Link</h2><p class="muted">Diese Testseite verändert keine Daten der bestehenden Ferienkasse. Gemeinsame Reisen sind noch nicht aktiv.</p>
-<form id="login"><label>E-Mail-Adresse<input id="email" type="email" autocomplete="email" required></label><button id="send" type="submit">Anmeldelink anfordern</button></form>
+<main><section class="card"><h2>Anmeldung</h2><p class="muted">Diese Testseite verändert keine Daten der bestehenden Ferienkasse. Testanmeldung für gemeinsame Reisen.</p>
+<h3>Mit E-Mail und Passwort</h3>
+<form id="passwordLogin"><label>E-Mail-Adresse<input id="passwordEmail" type="email" autocomplete="email" required></label><label>Passwort<input id="passwordValue" type="password" autocomplete="current-password" minlength="8" required></label><button id="passwordSignIn" type="submit">Mit Passwort anmelden</button><button id="passwordSignUp" type="button" class="secondary">Neues Konto erstellen</button></form>
+<hr><h3>Alternativ: Magic Link</h3><form id="login"><label>E-Mail-Adresse<input id="email" type="email" autocomplete="email" required></label><button id="send" type="submit">Anmeldelink anfordern</button></form>
 <form id="verify" hidden><label>Optional: Einmalcode aus der E-Mail<input id="token" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required></label><button type="submit">Code bestätigen</button></form>
-<div id="signed" hidden><p>Angemeldet als <strong id="account"></strong></p><button id="logout" class="secondary">Abmelden</button></div>
+<div id="signed" hidden><p>Angemeldet als <strong id="account"></strong></p><form id="setPassword"><label>Passwort festlegen oder ändern<input id="newPassword" type="password" autocomplete="new-password" minlength="8" required></label><button id="setPasswordButton" type="submit">Passwort speichern</button></form><p><a href="./trips-preview.html">Zu meinen Reisen</a></p><button id="logout" class="secondary">Abmelden</button></div>
 <p id="status" class="muted" role="status" aria-live="polite"></p></section></main>
-<script type="module" src="./auth-preview.js"></script></body></html>
+<script type="module" src="./auth-preview.js?v=2"></script></body></html>
