@@ -52,7 +52,7 @@ $('personform').addEventListener('submit',async event=>{
 });
 $('expenseform').addEventListener('submit',async event=>{
  event.preventDefault();if(!selected||!people.some(p=>p.id===$('payer').value))return;const button=$('expensesave');button.disabled=true;
- try{const amount=$('amount').value;if(!/^\\d+(?:\\.\\d{1,2})?$/.test(amount))throw new Error('Bitte Betrag mit maximal zwei Dezimalstellen eingeben.');const cents=Math.round(Number(amount)*100);if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
+ try{const amount=$('amount').value;if(!/^[0-9]+(?:\.[0-9]{1,2})?$/.test(amount))throw new Error('Bitte Betrag mit maximal zwei Dezimalstellen eingeben.');const cents=Math.round(Number(amount)*100);if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
  const {error}=await client.from('fk_expenses').insert({trip_id:selected.id,person_id:$('payer').value,description:$('description').value.trim(),amount_cents:cents,currency:selected.currency,expense_date:$('date').value});
  if(error)throw error;$('description').value='';$('amount').value='';await loadDetail();
  }catch(error){status('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
