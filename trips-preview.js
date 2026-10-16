@@ -3,13 +3,14 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase/project-confi
 const client=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{flowType:'implicit',storageKey:'ferienkasse.v1.3.auth.test',detectSessionInUrl:true}});
 const $=id=>document.getElementById(id);
 let selected=null, people=[];
+const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
 const showSignedOut=()=>{$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
 $('login').addEventListener('click',()=>{location.href='./auth-preview.html';});
 function line(parent,primary,secondary){const row=document.createElement('div');row.className='item';const info=document.createElement('div');const strong=document.createElement('strong');strong.textContent=primary;info.append(strong);if(secondary){const sub=document.createElement('div');sub.className='sub';sub.textContent=secondary;info.append(sub);}row.append(info);parent.append(row);return row;}
 async function refresh(){
  status('Reisen werden geladen …');
- const {data,error}=await client.from('fk_trips').select('id,name,currency,created_at').order('created_at',{ascending:false});
+ const {data,error}=await client.from('fk_trips').select('id,name,currency,created_at,owner_id').order('created_at',{ascending:false});
  if(error){status('Laden fehlgeschlagen: '+error.message);return;}
  $('trips').replaceChildren();
  if(!data.length){const p=document.createElement('p');p.className='muted';p.textContent='Noch keine Reisen vorhanden.';$('trips').append(p);}
@@ -20,6 +21,8 @@ async function refresh(){
 async function openTrip(trip){
  selected=trip;$('detail').hidden=false;$('triptitle').textContent=trip.name+' ('+trip.currency+')';
  await loadDetail();
+ const {data:{user}}=await client.auth.getUser();$('createInvite').hidden=user?.id!==trip.owner_id;
+ $('inviteLink').value='';$('copyInvite').hidden=true;$('inviteStatus').textContent='';
  $('detail').scrollIntoView({behavior:'smooth',block:'start'});
 }
 async function loadDetail(){
@@ -38,6 +41,29 @@ async function loadDetail(){
  status('Reisedaten aus Supabase geladen.');
 }
 $('refresh').addEventListener('click',refresh);
+$('createInvite').addEventListener('click',async()=>{
+ if(!selected)return;const button=$('createInvite');button.disabled=true;$('inviteStatus').textContent='Einladungslink wird erstellt …';
+ try{
+  const {data,error}=await client.rpc('fk_create_invitation',{p_trip:selected.id});if(error)throw error;
+  const url=new URL('./trips-preview.html',location.href);url.searchParams.set('invite',data);
+  $('inviteLink').value=url.href;$('copyInvite').hidden=false;
+  $('inviteStatus').textContent='Link erstellt. Einmalig nutzbar, 7 Tage gültig. Nur an die gewünschte Person senden.';
+ }catch(error){$('inviteStatus').textContent='Einladung fehlgeschlagen: '+error.message;}
+ finally{button.disabled=false;}
+});
+$('copyInvite').addEventListener('click',async()=>{
+ try{await navigator.clipboard.writeText($('inviteLink').value);$('inviteStatus').textContent='Link kopiert.';}
+ catch(error){$('inviteLink').select();$('inviteStatus').textContent='Bitte markierten Link manuell kopieren.';}
+});
+$('acceptInvite').addEventListener('click',async()=>{
+ if(!invitationToken)return;const button=$('acceptInvite');button.disabled=true;$('inviteMessage').textContent='Einladung wird angenommen …';
+ try{
+  const {data,error}=await client.rpc('fk_accept_invitation',{p_token:invitationToken});if(error)throw error;
+  history.replaceState(null,'',location.pathname);
+  $('invitation').hidden=true;await refresh();
+  $('inviteMessage').textContent='Einladung angenommen.';status('Einladung angenommen. Die gemeinsame Reise erscheint unter Meine Reisen.');
+ }catch(error){$('inviteMessage').textContent='Einladung konnte nicht angenommen werden: '+error.message;button.disabled=false;}
+});
 $('create').addEventListener('submit',async event=>{
  event.preventDefault();const button=$('save');button.disabled=true;status('Reise wird gespeichert …');
  try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw authError||new Error('Nicht angemeldet');
@@ -58,6 +84,13 @@ $('expenseform').addEventListener('submit',async event=>{
  }catch(error){report('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
 });
 $('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-async function init(){const {data:{session},error}=await client.auth.getSession();if(error||!session){showSignedOut();return;}$('account').textContent='Angemeldet als '+(session.user.email||'Benutzer');$('workspace').hidden=false;$('results').hidden=false;$('login').hidden=true;await refresh();}
+async function init(){
+ const {data:{session},error}=await client.auth.getSession();
+ if(error||!session){showSignedOut();if(invitationToken){$('invitation').hidden=false;$('inviteMessage').textContent='Bitte zuerst anmelden. Danach diesen Einladungslink erneut öffnen.';}return;}
+ $('account').textContent='Angemeldet als '+(session.user.email||'Benutzer');
+ $('workspace').hidden=false;$('results').hidden=false;$('login').hidden=true;
+ if(invitationToken){$('invitation').hidden=false;$('inviteMessage').textContent='Du wurdest zu einer Reise eingeladen. Mit „Einladung annehmen“ trittst du bei.';}
+ await refresh();
+}
 client.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')showSignedOut();});
 init().catch(error=>status('Initialisierung fehlgeschlagen: '+error.message));
