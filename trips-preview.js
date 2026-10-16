@@ -2,32 +2,61 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase/project-config.js';
 const client=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{flowType:'implicit',storageKey:'ferienkasse.v1.3.auth.test',detectSessionInUrl:true}});
 const $=id=>document.getElementById(id);
+let selected=null, people=[];
 const status=message=>{$('status').textContent=message;};
-const showSignedOut=()=>{$('account').textContent='Nicht angemeldet.';$('workspace').hidden=true;$('results').hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
+const showSignedOut=()=>{$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
 $('login').addEventListener('click',()=>{location.href='./auth-preview.html';});
+function line(parent,primary,secondary){const row=document.createElement('div');row.className='item';const info=document.createElement('div');const strong=document.createElement('strong');strong.textContent=primary;info.append(strong);if(secondary){const sub=document.createElement('div');sub.className='sub';sub.textContent=secondary;info.append(sub);}row.append(info);parent.append(row);return row;}
 async function refresh(){
  status('Reisen werden geladen …');
  const {data,error}=await client.from('fk_trips').select('id,name,currency,created_at').order('created_at',{ascending:false});
  if(error){status('Laden fehlgeschlagen: '+error.message);return;}
  $('trips').replaceChildren();
  if(!data.length){const p=document.createElement('p');p.className='muted';p.textContent='Noch keine Reisen vorhanden.';$('trips').append(p);}
- for(const trip of data){const row=document.createElement('div');row.className='item';const details=document.createElement('div');const title=document.createElement('strong');title.textContent=trip.name;const meta=document.createElement('div');meta.className='sub';meta.textContent=trip.currency+' · '+new Date(trip.created_at).toLocaleDateString('de-CH');details.append(title,meta);row.append(details);$('trips').append(row);}
+ for(const trip of data){const row=line($('trips'),trip.name,trip.currency+' · '+new Date(trip.created_at).toLocaleDateString('de-CH'));const btn=document.createElement('button');btn.textContent='Öffnen';btn.className='secondary';btn.addEventListener('click',()=>openTrip(trip));row.append(btn);}
  status(data.length+' Reise(n) aus Supabase geladen.');
+ if(selected){const match=data.find(t=>t.id===selected.id);if(match)await openTrip(match);else{$('detail').hidden=true;selected=null;}}
+}
+async function openTrip(trip){
+ selected=trip;$('detail').hidden=false;$('triptitle').textContent=trip.name+' ('+trip.currency+')';
+ await loadDetail();
+}
+async function loadDetail(){
+ if(!selected)return;
+ const tripId=selected.id;
+ const [pr,er]=await Promise.all([client.from('fk_people').select('id,name').eq('trip_id',tripId).order('name'),client.from('fk_expenses').select('id,description,amount_cents,expense_date,person_id,currency').eq('trip_id',tripId).order('expense_date',{ascending:false})]);
+ if(selected?.id!==tripId)return;
+ if(pr.error||er.error){status('Reisedaten konnten nicht geladen werden: '+(pr.error||er.error).message);return;}
+ people=pr.data;$('people').replaceChildren();$('payer').replaceChildren();
+ for(const p of people){line($('people'),p.name);const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('payer').append(option);}
+ if(!people.length)line($('people'),'Noch keine Personen erfasst.');
+ $('expenses').replaceChildren();
+ for(const e of er.data){const payer=people.find(p=>p.id===e.person_id)?.name||'Unbekannt';line($('expenses'),e.description,(e.amount_cents/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+e.currency+' · '+payer+' · '+e.expense_date);}
+ if(!er.data.length)line($('expenses'),'Noch keine Ausgaben erfasst.');
+ $('expensesave').disabled=!people.length;
+ status('Reisedaten aus Supabase geladen.');
 }
 $('refresh').addEventListener('click',refresh);
 $('create').addEventListener('submit',async event=>{
  event.preventDefault();const button=$('save');button.disabled=true;status('Reise wird gespeichert …');
- try{
-  const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw authError||new Error('Nicht angemeldet');
-  const {error}=await client.from('fk_trips').insert({name:$('name').value.trim(),currency:$('currency').value,owner_id:user.id});
-  if(error)throw error;$('name').value='';await refresh();
- }catch(error){status('Speichern fehlgeschlagen: '+error.message);}
- finally{button.disabled=false;}
+ try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw authError||new Error('Nicht angemeldet');
+ const {error}=await client.from('fk_trips').insert({name:$('name').value.trim(),currency:$('currency').value,owner_id:user.id});
+ if(error)throw error;$('name').value='';await refresh();
+ }catch(error){status('Speichern fehlgeschlagen: '+error.message);}finally{button.disabled=false;}
 });
-async function init(){
- const {data:{session},error}=await client.auth.getSession();
- if(error||!session){showSignedOut();return;}
- $('account').textContent='Angemeldet als '+(session.user.email||'Benutzer');$('workspace').hidden=false;$('results').hidden=false;$('login').hidden=true;await refresh();
-}
+$('personform').addEventListener('submit',async event=>{
+ event.preventDefault();if(!selected)return;const button=$('personsave');button.disabled=true;
+ try{const {error}=await client.from('fk_people').insert({trip_id:selected.id,name:$('personname').value.trim()});if(error)throw error;$('personname').value='';await loadDetail();}
+ catch(error){status('Person konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
+});
+$('expenseform').addEventListener('submit',async event=>{
+ event.preventDefault();if(!selected||!people.some(p=>p.id===$('payer').value))return;const button=$('expensesave');button.disabled=true;
+ try{const amount=$('amount').value;if(!/^\\d+(?:\\.\\d{1,2})?$/.test(amount))throw new Error('Bitte Betrag mit maximal zwei Dezimalstellen eingeben.');const cents=Math.round(Number(amount)*100);if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
+ const {error}=await client.from('fk_expenses').insert({trip_id:selected.id,person_id:$('payer').value,description:$('description').value.trim(),amount_cents:cents,currency:selected.currency,expense_date:$('date').value});
+ if(error)throw error;$('description').value='';$('amount').value='';await loadDetail();
+ }catch(error){status('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
+});
+$('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+async function init(){const {data:{session},error}=await client.auth.getSession();if(error||!session){showSignedOut();return;}$('account').textContent='Angemeldet als '+(session.user.email||'Benutzer');$('workspace').hidden=false;$('results').hidden=false;$('login').hidden=true;await refresh();}
 client.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')showSignedOut();});
 init().catch(error=>status('Initialisierung fehlgeschlagen: '+error.message));
