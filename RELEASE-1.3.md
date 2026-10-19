@@ -30,3 +30,11 @@ Bei Problemen GitHub Pages auf den gesicherten Stand 1.2.1 zurücksetzen. **Acht
 - Login und Einladungslinks zeigen auf die richtige Domain.
 - Keine Datenbank-Migrationen mit Löschoperationen.
 - Release erst nach expliziter Bestätigung deployen.
+
+## Vorbereitete Freigabedateien (nur Release-Branch)
+- `index.html` und `app.js`: Startseite und Reiseverwaltung ohne Test-Beschriftung.
+- `auth.html` und `auth.js`: Anmeldung mit Redirect zur vorgesehenen Auth-Seite.
+- `supabase/project-config.js`: verweist unverändert auf die bereits genutzte Supabase-Datenbank.
+- Die Freigabedateien sind **noch nicht auf die produktive GitHub-Pages-Adresse kopiert oder veröffentlicht**.
+- Noch offen: Asset-Übernahme (`style.css`, mobile CSS, Tabs CSS, Supabase-Konfiguration), PWA-Manifest/Service Worker, Supabase Redirect-URLs, Backup, Integrations- und Sicherheitstest.
+- Bestehende Auth-Session nutzt weiterhin `ferienkasse.v1.3.auth.test` zur Kompatibilität mit dem Teststand; vor Freigabe bewerten.
