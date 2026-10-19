@@ -2,7 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase/project-config.js';
 const client=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{flowType:'implicit',storageKey:'ferienkasse.v1.3.auth.test',detectSessionInUrl:true}});
 const $=id=>document.getElementById(id);
-let selected=null, people=[], editingExpenseId=null;
+let selected=null, people=[], editingExpenseId=null, splits=[];
 const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
 const showSignedOut=()=>{$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
@@ -31,16 +31,21 @@ async function loadDetail(){
  const [pr,er]=await Promise.all([client.from('fk_people').select('id,name').eq('trip_id',tripId).order('name'),client.from('fk_expenses').select('id,description,amount_cents,expense_date,person_id,currency').eq('trip_id',tripId).order('expense_date',{ascending:false})]);
  if(selected?.id!==tripId)return;
  if(pr.error||er.error){status('Reisedaten konnten nicht geladen werden: '+(pr.error||er.error).message);return;}
- people=pr.data;$('people').replaceChildren();$('payer').replaceChildren();
+ const sr=await client.from('fk_expense_splits').select('expense_id,person_id,amount_cents').in('expense_id',er.data.length?er.data.map(e=>e.id):['00000000-0000-0000-0000-000000000000']);
+ if(sr.error){status('Aufteilungen konnten nicht geladen werden: '+sr.error.message);return;}
+ splits=sr.data;people=pr.data;$('people').replaceChildren();$('payer').replaceChildren();$('splitPeople').replaceChildren();
  for(const p of people){line($('people'),p.name);const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('payer').append(option);}
  if(!people.length)line($('people'),'Noch keine Personen erfasst.');
+ for(const p of people){const label=document.createElement('label');const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.value=p.id;checkbox.checked=true;label.append(checkbox,document.createTextNode(' '+p.name));$('splitPeople').append(label);}
  $('expenses').replaceChildren();
  for(const e of er.data){
  const payer=people.find(p=>p.id===e.person_id)?.name||'Unbekannt';
- const row=line($('expenses'),e.description,(e.amount_cents/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+e.currency+' · '+payer+' · '+e.expense_date);
+ const portions=splits.filter(s=>s.expense_id===e.id);
+ const portionText=portions.length?' · Aufgeteilt auf '+portions.map(s=>people.find(p=>p.id===s.person_id)?.name+' '+(s.amount_cents/100).toFixed(2)).join(', '):' · Noch nicht aufgeteilt';
+ const row=line($('expenses'),e.description,(e.amount_cents/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+e.currency+' · '+payer+' · '+e.expense_date+portionText);
  const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Bearbeiten';
  edit.addEventListener('click',()=>{
-  editingExpenseId=e.id;$('description').value=e.description;$('amount').value=(e.amount_cents/100).toFixed(2);$('payer').value=e.person_id;$('date').value=e.expense_date;
+  editingExpenseId=e.id;const ids=splits.filter(s=>s.expense_id===e.id).map(s=>s.person_id);for(const box of $('splitPeople').querySelectorAll('input'))box.checked=ids.length?ids.includes(box.value):true;$('description').value=e.description;$('amount').value=(e.amount_cents/100).toFixed(2);$('payer').value=e.person_id;$('date').value=e.expense_date;
   $('expensesave').textContent='Änderungen speichern';$('cancelEdit').hidden=false;$('expenseStatus').textContent='Ausgabe bearbeiten: '+e.description;
   $('expenseform').scrollIntoView({behavior:'smooth',block:'center'});
  });
@@ -61,7 +66,7 @@ async function loadDetail(){
  status('Reisedaten aus Supabase geladen.');
 }
 function resetExpenseEdit(){
- editingExpenseId=null;$('expenseform').reset();$('expensesave').textContent='Ausgabe speichern';$('cancelEdit').hidden=true;
+ editingExpenseId=null;$('expenseform').reset();for(const box of $('splitPeople').querySelectorAll('input'))box.checked=true;$('expensesave').textContent='Ausgabe speichern';$('cancelEdit').hidden=true;
  $('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
 }
 $('cancelEdit').addEventListener('click',()=>{resetExpenseEdit();$('expenseStatus').textContent='Bearbeitung abgebrochen.';});
@@ -104,13 +109,14 @@ $('personform').addEventListener('submit',async event=>{
 $('expenseform').addEventListener('submit',async event=>{
  event.preventDefault();const report=message=>{$('expenseStatus').textContent=message;status(message);};if(!selected){report('Bitte zuerst eine Reise öffnen.');return;}if(!people.some(p=>p.id===$('payer').value)){report('Bitte eine zahlende Person auswählen.');return;}if(!$('description').value.trim()){report('Bitte eine Beschreibung eingeben.');return;}if(!$('date').value){report('Bitte ein Datum auswählen.');return;}const button=$('expensesave');button.disabled=true;report('Ausgabe wird gespeichert …');
  try{const amount=$('amount').value.trim().replace(',','.');if(!/^[0-9]+(?:\.[0-9]{1,2})?$/.test(amount))throw new Error('Bitte Betrag mit maximal zwei Dezimalstellen eingeben.');const cents=Math.round(Number(amount)*100);if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
- const values={person_id:$('payer').value,description:$('description').value.trim(),amount_cents:cents,expense_date:$('date').value};
+ const participants=Array.from($('splitPeople').querySelectorAll('input:checked')).map(box=>box.value);
+ if(!participants.length)throw new Error('Bitte mindestens eine Person für die Aufteilung auswählen.');
  const wasEditing=!!editingExpenseId;
- const response=wasEditing
-  ?await client.from('fk_expenses').update(values).eq('id',editingExpenseId).eq('trip_id',selected.id).select('id')
-  :await client.from('fk_expenses').insert({...values,trip_id:selected.id,currency:selected.currency}).select('id');
+ const response=await client.rpc('fk_save_split_expense',{
+  p_trip:selected.id,p_expense:editingExpenseId,p_payer:$('payer').value,
+  p_description:$('description').value.trim(),p_amount_cents:cents,p_date:$('date').value,p_people:participants
+ });
  if(response.error)throw response.error;
- if(!response.data?.length)throw new Error('Keine Ausgabe gespeichert. Bitte Berechtigungen prüfen.');
  resetExpenseEdit();await loadDetail();report(wasEditing?'Ausgabe erfolgreich geändert.':'Ausgabe erfolgreich in Supabase gespeichert.');
  }catch(error){report('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
 });
