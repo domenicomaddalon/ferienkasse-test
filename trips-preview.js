@@ -91,7 +91,7 @@ function printReport(){
  add('h2','Einzelne Ausgaben');
  table(['Datum','Beschreibung','Kategorie','Bezahlt von','Betrag','Kostenaufteilung'],expenses.map(e=>{
   const portions=splits.filter(x=>x.expense_id===e.id);
-  return [e.expense_date,e.description,e.category||'Diverses',name(e.person_id),money(e.amount_cents),portions.length?portions.map(p=>name(p.person_id)+': '+money(p.amount_cents)).join('; '):'Nicht zugeordnet'];
+  return [e.expense_date,e.description,e.category||'Diverses',name(e.person_id),money(e.amount_cents)+(e.original_currency&&e.original_currency!==selected.currency?' (Original: '+(e.original_amount_cents/100).toFixed(2)+' '+e.original_currency+', Kurs '+e.exchange_rate+')':''),portions.length?portions.map(p=>name(p.person_id)+': '+money(p.amount_cents)).join('; '):'Nicht zugeordnet'];
  }));
  const balance=new Map(people.map(p=>[p.id,{paid:0,share:0}]));
  let excluded=0;
