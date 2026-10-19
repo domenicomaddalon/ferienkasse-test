@@ -118,9 +118,62 @@ function printReport(){
 }
 $('pdfBtn').addEventListener('click',printReport);
 
+
+/* v20: sichere lokale Vorschau von 1.2.1-JSON; keine Datenbank-Schreibzugriffe */
+let importBackup=null;
+const importFile=$('importFile'),importTrip=$('importTrip'),importPreview=$('importPreview');
+const previewMoney=(c,cur)=>(c/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+cur;
+function renderImportPreview(){
+ importPreview.replaceChildren();
+ const trip=importBackup?.trips?.[Number(importTrip.value)];
+ if(!trip)return;
+ const info=document.createElement('div');info.className='import-review';importPreview.append(info);
+ const add=(label,value)=>{const p=document.createElement('p');const b=document.createElement('strong');b.textContent=label+': ';p.append(b,document.createTextNode(String(value)));info.append(p);};
+ const names=new Set(trip.people.map(p=>p.id));
+ const invalid=trip.expenses.filter(e=>!names.has(e.payer)||!Array.isArray(e.shares)||!e.shares.length||e.shares.some(id=>!names.has(id))||!Number.isSafeInteger(e.amount)||e.amount<=0||!Number.isFinite(e.rate)||e.rate<=0);
+ const converted=trip.expenses.map(e=>Math.round(e.amount*e.rate));
+ const sum=converted.reduce((a,b)=>a+b,0);
+ add('Reise',trip.name);
+ add('Teilnehmende',trip.people.length);
+ add('Ausgaben',trip.expenses.length);
+ add('Kategorien',(trip.categories||[]).join(', ')||'Keine');
+ add('Zielwährung',trip.currency);
+ add('Gesamtbetrag (umgerechnet)',previewMoney(sum,trip.currency));
+ const currencies=[...new Set(trip.expenses.map(e=>e.currency))];
+ add('Erfasste Währungen',currencies.join(', ')||'Keine');
+ const table=document.createElement('table'),head=document.createElement('tr');
+ for(const label of ['Ausgabe','Originalbetrag','Kurs','Betrag in '+trip.currency]){const th=document.createElement('th');th.textContent=label;head.append(th);}
+ table.append(head);
+ for(let i=0;i<trip.expenses.length;i++){
+  const e=trip.expenses[i],tr=document.createElement('tr');
+  for(const value of [e.name,previewMoney(e.amount,e.currency),e.rate,previewMoney(converted[i],trip.currency)]){const td=document.createElement('td');td.textContent=String(value);tr.append(td);}
+  table.append(tr);
+ }
+ info.append(table);
+ const note=document.createElement('p');note.className=invalid.length?'negative':'muted';
+ note.textContent=invalid.length?'Achtung: '+invalid.length+' Ausgaben mit ungültigen Zuordnungen oder Beträgen.':'Vorschau erfolgreich. Es wurde nichts importiert. Für die Übernahme müssen Originalwährung und Kurs zusätzlich gespeichert werden.';
+ info.append(note);
+}
+importFile.addEventListener('change',async()=>{
+ importBackup=null;importTrip.replaceChildren();importTrip.disabled=true;importPreview.replaceChildren();
+ const file=importFile.files?.[0];if(!file)return;
+ try{
+  if(file.size>5_000_000)throw new Error('Datei ist grösser als 5 MB.');
+  const data=JSON.parse(await file.text());
+  if(data.version!==1||!Array.isArray(data.trips)||data.trips.length>100)throw new Error('Unbekanntes Sicherungsformat.');
+  for(const t of data.trips){
+   if(!t||typeof t.name!=='string'||!Array.isArray(t.people)||!Array.isArray(t.expenses)||typeof t.currency!=='string'||t.people.length>1000||t.expenses.length>10000)throw new Error('Ungültige Reisedaten.');
+  }
+  importBackup=data;
+  data.trips.forEach((trip,i)=>{const opt=document.createElement('option');opt.value=String(i);opt.textContent=trip.name;importTrip.append(opt);});
+  importTrip.disabled=false;renderImportPreview();
+ }catch(error){importPreview.textContent='Datei konnte nicht geprüft werden: '+error.message;}
+});
+importTrip.addEventListener('change',renderImportPreview);
+
 const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
-const showSignedOut=()=>{stopRealtime();$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
+const showSignedOut=()=>{stopRealtime();$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail','migration'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
 $('login').addEventListener('click',()=>{location.href='./auth-preview.html';});
 function line(parent,primary,secondary){const row=document.createElement('div');row.className='item';const info=document.createElement('div');const strong=document.createElement('strong');strong.textContent=primary;info.append(strong);if(secondary){const sub=document.createElement('div');sub.className='sub';sub.textContent=secondary;info.append(sub);}row.append(info);parent.append(row);return row;}
 
