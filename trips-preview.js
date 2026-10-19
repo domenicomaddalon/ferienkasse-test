@@ -3,11 +3,51 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase/project-confi
 const client=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{flowType:'implicit',storageKey:'ferienkasse.v1.3.auth.test',detectSessionInUrl:true}});
 const $=id=>document.getElementById(id);
 let selected=null, people=[], editingExpenseId=null, splits=[], payments=[];
+let realtimeChannel=null,realtimeTripId=null,realtimeTimer=null,realtimeLoading=false,realtimeQueued=false;
 const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
-const showSignedOut=()=>{$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
+const showSignedOut=()=>{stopRealtime();$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
 $('login').addEventListener('click',()=>{location.href='./auth-preview.html';});
 function line(parent,primary,secondary){const row=document.createElement('div');row.className='item';const info=document.createElement('div');const strong=document.createElement('strong');strong.textContent=primary;info.append(strong);if(secondary){const sub=document.createElement('div');sub.className='sub';sub.textContent=secondary;info.append(sub);}row.append(info);parent.append(row);return row;}
+
+function stopRealtime(){
+ if(realtimeTimer!==null){clearTimeout(realtimeTimer);realtimeTimer=null;}
+ if(realtimeChannel){client.removeChannel(realtimeChannel);realtimeChannel=null;}
+ realtimeTripId=null;
+ if($('realtimeStatus'))$('realtimeStatus').textContent='Automatische Synchronisierung nicht verbunden.';
+}
+function queueRealtimeRefresh(){
+ if(realtimeTimer!==null)clearTimeout(realtimeTimer);
+ realtimeTimer=setTimeout(async()=>{
+  realtimeTimer=null;
+  if(!selected||selected.id!==realtimeTripId)return;
+  if(realtimeLoading){realtimeQueued=true;return;}
+  realtimeLoading=true;
+  try{await loadDetail();}finally{
+   realtimeLoading=false;
+   if(realtimeQueued){realtimeQueued=false;queueRealtimeRefresh();}
+  }
+ },500);
+}
+function startRealtime(tripId){
+ if(realtimeChannel&&realtimeTripId===tripId)return;
+ stopRealtime();
+ realtimeTripId=tripId;
+ const channel=client.channel('ferienkasse-trip-'+tripId);
+ for(const table of ['fk_people','fk_expenses','fk_settlements']){
+  channel.on('postgres_changes',{event:'*',schema:'public',table,filter:'trip_id=eq.'+tripId},queueRealtimeRefresh);
+ }
+ realtimeChannel=channel;
+ $('realtimeStatus').textContent='Automatische Synchronisierung wird verbunden …';
+ channel.subscribe((state)=>{
+  if(realtimeChannel!==channel)return;
+  if(state==='SUBSCRIBED'){$('realtimeStatus').textContent='Automatische Synchronisierung aktiv.';queueRealtimeRefresh();}
+  else if(state==='CHANNEL_ERROR'||state==='TIMED_OUT')$('realtimeStatus').textContent='Synchronisierung unterbrochen – bitte Aktualisieren verwenden.';
+  else if(state==='CLOSED')$('realtimeStatus').textContent='Synchronisierung getrennt.';
+ });
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&selected)queueRealtimeRefresh();});
+
 async function refresh(){
  status('Reisen werden geladen …');
  const {data,error}=await client.from('fk_trips').select('id,name,currency,created_at,owner_id').order('created_at',{ascending:false});
@@ -16,11 +56,12 @@ async function refresh(){
  if(!data.length){const p=document.createElement('p');p.className='muted';p.textContent='Noch keine Reisen vorhanden.';$('trips').append(p);}
  for(const trip of data){const row=line($('trips'),trip.name,trip.currency+' · '+new Date(trip.created_at).toLocaleDateString('de-CH'));const btn=document.createElement('button');btn.textContent='Öffnen';btn.className='secondary';btn.addEventListener('click',()=>openTrip(trip));row.append(btn);}
  status(data.length+' Reise(n) aus Supabase geladen.');
- if(selected){const match=data.find(t=>t.id===selected.id);if(match)await openTrip(match);else{$('detail').hidden=true;selected=null;}}
+ if(selected){const match=data.find(t=>t.id===selected.id);if(match)await openTrip(match);else{stopRealtime();$('detail').hidden=true;selected=null;}}
 }
 async function openTrip(trip){
- if(selected?.id!==trip.id)resetExpenseEdit();selected=trip;$('detail').hidden=false;$('triptitle').textContent=trip.name+' ('+trip.currency+')';
+ if(selected?.id!==trip.id){stopRealtime();resetExpenseEdit();}selected=trip;$('detail').hidden=false;$('triptitle').textContent=trip.name+' ('+trip.currency+')';
  await loadDetail();
+ startRealtime(trip.id);
  const {data:{user}}=await client.auth.getUser();$('createInvite').hidden=user?.id!==trip.owner_id;
  $('inviteLink').value='';$('copyInvite').hidden=true;$('inviteStatus').textContent='';
  $('detail').scrollIntoView({behavior:'smooth',block:'start'});
