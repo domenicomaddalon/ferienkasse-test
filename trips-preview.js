@@ -4,6 +4,63 @@ const client=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{flowType:
 const $=id=>document.getElementById(id);
 let selected=null, people=[], editingExpenseId=null, splits=[], payments=[];
 let realtimeChannel=null,realtimeTripId=null,realtimeTimer=null,realtimeLoading=false,realtimeQueued=false;
+
+let activeView='expenses',reportExpenses=[];
+function showView(view){
+ if(!['expenses','balances','payments','people'].includes(view))return;
+ activeView=view;
+ for(const panel of document.querySelectorAll('[data-panel]'))panel.hidden=panel.dataset.panel!==view;
+ for(const button of document.querySelectorAll('[data-view]')){
+  const active=button.dataset.view===view;
+  button.classList.toggle('active',active);
+  button.setAttribute('aria-pressed',String(active));
+ }
+}
+for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>showView(button.dataset.view));
+showView('expenses');
+function printReport(){
+ if(!selected)return;
+ const area=$('printArea');area.replaceChildren();
+ const add=(tag,text,parent=area)=>{const el=document.createElement(tag);el.textContent=text;parent.append(el);return el;};
+ const money=c=>(c/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+selected.currency;
+ const name=id=>people.find(p=>p.id===id)?.name||'Unbekannt';
+ const table=(headers,rows)=>{
+  const t=document.createElement('table'),head=document.createElement('thead'),tr=document.createElement('tr');
+  for(const x of headers)add('th',x,tr);head.append(tr);t.append(head);
+  const body=document.createElement('tbody');
+  for(const row of rows){const line=document.createElement('tr');for(const value of row)add('td',String(value),line);body.append(line);}
+  t.append(body);area.append(t);
+ };
+ add('h1','Ferienkasse – '+selected.name);
+ add('p','Abrechnung in '+selected.currency+' · Erstellt am '+new Date().toLocaleDateString('de-CH'));
+ add('h2','Ausgaben');
+ table(['Datum','Beschreibung','Bezahlt von','Betrag','Kostenaufteilung'],reportExpenses.map(e=>{
+  const portions=splits.filter(x=>x.expense_id===e.id);
+  return [e.expense_date,e.description,name(e.person_id),money(e.amount_cents),portions.length?portions.map(p=>name(p.person_id)+': '+money(p.amount_cents)).join('; '):'Nicht zugeordnet'];
+ }));
+ add('h2','Salden pro Person');
+ const balance=new Map(people.map(p=>[p.id,{paid:0,share:0}]));
+ for(const e of reportExpenses){
+  const portions=splits.filter(x=>x.expense_id===e.id);
+  if(!portions.length||portions.reduce((a,x)=>a+x.amount_cents,0)!==e.amount_cents||!balance.has(e.person_id)||portions.some(x=>!balance.has(x.person_id)))continue;
+  balance.get(e.person_id).paid+=e.amount_cents;
+  for(const p of portions)balance.get(p.person_id).share+=p.amount_cents;
+ }
+ for(const p of payments)if(balance.has(p.from_person_id)&&balance.has(p.to_person_id)){
+  balance.get(p.from_person_id).paid+=p.amount_cents;balance.get(p.to_person_id).paid-=p.amount_cents;
+ }
+ table(['Person','Netto bezahlt','Kostenanteil','Offener Saldo'],people.map(p=>{
+  const b=balance.get(p.id);return[p.name,money(b.paid),money(b.share),money(b.paid-b.share)];
+ }));
+ add('h2','Offene Ausgleichszahlungen');
+ const suggested=Array.from($('settlements').querySelectorAll('.item')).map(el=>[el.querySelector('strong')?.textContent||'',el.querySelector('.sub')?.textContent||'']);
+ table(['Überweisung','Betrag'],suggested);
+ add('h2','Bereits erfasste Ausgleichszahlungen');
+ table(['Datum','Von','An','Betrag'],payments.map(p=>[p.paid_on,name(p.from_person_id),name(p.to_person_id),money(p.amount_cents)]));
+ window.print();
+}
+$('pdfBtn').addEventListener('click',printReport);
+
 const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
 const showSignedOut=()=>{stopRealtime();$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
@@ -76,7 +133,7 @@ async function loadDetail(){
  if(sr.error){status('Aufteilungen konnten nicht geladen werden: '+sr.error.message);return;}
  const payResult=await client.from('fk_settlements').select('id,from_person_id,to_person_id,amount_cents,paid_on').eq('trip_id',tripId).order('paid_on',{ascending:false});
  if(payResult.error){status('Zahlungen konnten nicht geladen werden: '+payResult.error.message);return;}
- payments=payResult.data;splits=sr.data;people=pr.data;$('people').replaceChildren();$('payer').replaceChildren();$('splitPeople').replaceChildren();
+ payments=payResult.data;splits=sr.data;people=pr.data;reportExpenses=er.data;$('people').replaceChildren();$('payer').replaceChildren();$('splitPeople').replaceChildren();
  for(const p of people){line($('people'),p.name);const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('payer').append(option);}
  if(!people.length)line($('people'),'Noch keine Personen erfasst.');
  for(const p of people){const label=document.createElement('label');const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.value=p.id;checkbox.checked=true;label.append(checkbox,document.createTextNode(' '+p.name));$('splitPeople').append(label);}
@@ -103,7 +160,7 @@ async function loadDetail(){
  const row=line($('expenses'),e.description,(e.amount_cents/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+e.currency+' · '+payer+' · '+e.expense_date+portionText);
  const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Bearbeiten';
  edit.addEventListener('click',()=>{
-  editingExpenseId=e.id;const ids=splits.filter(s=>s.expense_id===e.id).map(s=>s.person_id);for(const box of $('splitPeople').querySelectorAll('input'))box.checked=ids.length?ids.includes(box.value):true;$('description').value=e.description;$('amount').value=(e.amount_cents/100).toFixed(2);$('payer').value=e.person_id;$('date').value=e.expense_date;
+  showView('expenses');editingExpenseId=e.id;const ids=splits.filter(s=>s.expense_id===e.id).map(s=>s.person_id);for(const box of $('splitPeople').querySelectorAll('input'))box.checked=ids.length?ids.includes(box.value):true;$('description').value=e.description;$('amount').value=(e.amount_cents/100).toFixed(2);$('payer').value=e.person_id;$('date').value=e.expense_date;
   $('expensesave').textContent='Änderungen speichern';$('cancelEdit').hidden=false;$('expenseStatus').textContent='Ausgabe bearbeiten: '+e.description;
   $('expenseform').scrollIntoView({behavior:'smooth',block:'center'});
  });
