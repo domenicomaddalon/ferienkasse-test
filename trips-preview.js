@@ -7,7 +7,7 @@ let realtimeChannel=null,realtimeTripId=null,realtimeTimer=null,realtimeLoading=
 
 let activeView='expenses',reportExpenses=[];
 function showView(view){
- if(!['expenses','balances','payments','people'].includes(view))return;
+ if(!['expenses','new','balances','payments','people'].includes(view))return;
  activeView=view;
  for(const panel of document.querySelectorAll('[data-panel]'))panel.hidden=panel.dataset.panel!==view;
  for(const button of document.querySelectorAll('[data-view]')){
@@ -18,6 +18,7 @@ function showView(view){
 }
 for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>showView(button.dataset.view));
 showView('expenses');
+$('newExpense').addEventListener('click',()=>showView('new'));
 function printReport(){
  if(!selected)return;
  const area=$('printArea');area.replaceChildren();
@@ -160,7 +161,7 @@ async function loadDetail(){
  const row=line($('expenses'),e.description,(e.amount_cents/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+e.currency+' · '+payer+' · '+e.expense_date+portionText);
  const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Bearbeiten';
  edit.addEventListener('click',()=>{
-  showView('expenses');editingExpenseId=e.id;const ids=splits.filter(s=>s.expense_id===e.id).map(s=>s.person_id);for(const box of $('splitPeople').querySelectorAll('input'))box.checked=ids.length?ids.includes(box.value):true;$('description').value=e.description;$('amount').value=(e.amount_cents/100).toFixed(2);$('payer').value=e.person_id;$('date').value=e.expense_date;
+  showView('new');editingExpenseId=e.id;const ids=splits.filter(s=>s.expense_id===e.id).map(s=>s.person_id);for(const box of $('splitPeople').querySelectorAll('input'))box.checked=ids.length?ids.includes(box.value):true;$('description').value=e.description;$('amount').value=(e.amount_cents/100).toFixed(2);$('payer').value=e.person_id;$('date').value=e.expense_date;
   $('expensesave').textContent='Änderungen speichern';$('cancelEdit').hidden=false;$('expenseStatus').textContent='Ausgabe bearbeiten: '+e.description;
   $('expenseform').scrollIntoView({behavior:'smooth',block:'center'});
  });
@@ -290,7 +291,7 @@ $('expenseform').addEventListener('submit',async event=>{
   p_description:$('description').value.trim(),p_amount_cents:cents,p_date:$('date').value,p_people:participants
  });
  if(response.error)throw response.error;
- resetExpenseEdit();await loadDetail();report(wasEditing?'Ausgabe erfolgreich geändert.':'Ausgabe erfolgreich in Supabase gespeichert.');
+ resetExpenseEdit();await loadDetail();showView('expenses');report(wasEditing?'Ausgabe erfolgreich geändert.':'Ausgabe erfolgreich in Supabase gespeichert.');
  }catch(error){report('Ausgabe konnte nicht gespeichert werden: '+error.message);}finally{button.disabled=false;}
 });
 $('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
