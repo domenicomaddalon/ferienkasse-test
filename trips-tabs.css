@@ -70,3 +70,29 @@ body:has(.trip-detail) main{max-width:1050px}
  .setup-card details[open] summary{border-color:#304459}
  .trip-detail .trip-tabs button.active{box-shadow:inset 0 -3px 0 #7cd0e4}
 }
+
+/* v19 – druckfreundliche Abrechnung mit Diagrammen */
+@media print{
+ @page{size:A4;margin:13mm}
+ body>#printArea{padding:0!important;color:#17324d!important;font:10pt Arial,sans-serif!important}
+ #printArea h1{font-size:20pt;margin:0 0 2mm;color:#17324d}
+ #printArea h2{font-size:13pt;margin:7mm 0 3mm;color:#17324d;break-after:avoid}
+ #printArea .report-meta{font-size:9pt;color:#526477;margin-bottom:5mm}
+ #printArea .report-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;margin:4mm 0 7mm}
+ #printArea .report-summary-item{border:1px solid #d8e4eb;border-radius:3mm;padding:3mm}
+ #printArea .report-summary-item span{display:block;font-size:8pt;color:#526477}
+ #printArea .report-summary-item strong{display:block;font-size:14pt;margin-top:1mm}
+ #printArea .report-chart{display:flex;align-items:center;gap:7mm;break-inside:avoid;margin:3mm 0 6mm}
+ #printArea .report-donut{width:46mm;height:46mm;flex:none}
+ #printArea .report-chart-rows{flex:1;min-width:0}
+ #printArea .report-chart-row{margin:0 0 3mm;break-inside:avoid}
+ #printArea .report-chart-label{display:flex;justify-content:space-between;gap:3mm;font-size:8.5pt}
+ #printArea .report-chart-label strong{white-space:nowrap}
+ #printArea .report-chart-track{height:3mm;background:#eaf0f4;border-radius:3mm;margin-top:1mm;overflow:hidden}
+ #printArea .report-chart-bar{height:100%;border-radius:3mm}
+ #printArea table{font-size:8pt;margin:2mm 0 5mm}
+ #printArea th{background:#eaf1f6;font-weight:700}
+ #printArea th,#printArea td{padding:2mm 1.5mm}
+ #printArea thead{display:table-header-group}
+ #printArea svg,#printArea .report-chart-bar,#printArea .report-chart-label span,#printArea th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
