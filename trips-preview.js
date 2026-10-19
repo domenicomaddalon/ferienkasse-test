@@ -19,6 +19,7 @@ function showView(view){
 for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>showView(button.dataset.view));
 showView('expenses');
 $('newExpense').addEventListener('click',()=>showView('new'));
+$('toggleExpenses').addEventListener('click',()=>{const list=$('expenses');list.hidden=!list.hidden;$('toggleExpenses').textContent=list.hidden?'Erfasste Ausgaben anzeigen':'Erfasste Ausgaben ausblenden';$('toggleExpenses').setAttribute('aria-expanded',String(!list.hidden));});
 function printReport(){
  if(!selected)return;
  const area=$('printArea');area.replaceChildren();
