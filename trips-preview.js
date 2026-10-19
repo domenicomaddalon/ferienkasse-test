@@ -2,7 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase/project-config.js';
 const client=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{flowType:'implicit',storageKey:'ferienkasse.v1.3.auth.test',detectSessionInUrl:true}});
 const $=id=>document.getElementById(id);
-let selected=null, people=[], editingExpenseId=null, splits=[];
+let selected=null, people=[], editingExpenseId=null, splits=[], payments=[];
 const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
 const showSignedOut=()=>{$('account').textContent='Nicht angemeldet.';for(const id of ['workspace','results','detail'])$(id).hidden=true;$('login').hidden=false;status('Bitte zuerst mit Magic Link anmelden.');};
@@ -33,10 +33,27 @@ async function loadDetail(){
  if(pr.error||er.error){status('Reisedaten konnten nicht geladen werden: '+(pr.error||er.error).message);return;}
  const sr=await client.from('fk_expense_splits').select('expense_id,person_id,amount_cents').in('expense_id',er.data.length?er.data.map(e=>e.id):['00000000-0000-0000-0000-000000000000']);
  if(sr.error){status('Aufteilungen konnten nicht geladen werden: '+sr.error.message);return;}
- splits=sr.data;people=pr.data;$('people').replaceChildren();$('payer').replaceChildren();$('splitPeople').replaceChildren();
+ const payResult=await client.from('fk_settlements').select('id,from_person_id,to_person_id,amount_cents,paid_on').eq('trip_id',tripId).order('paid_on',{ascending:false});
+ if(payResult.error){status('Zahlungen konnten nicht geladen werden: '+payResult.error.message);return;}
+ payments=payResult.data;splits=sr.data;people=pr.data;$('people').replaceChildren();$('payer').replaceChildren();$('splitPeople').replaceChildren();
  for(const p of people){line($('people'),p.name);const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('payer').append(option);}
  if(!people.length)line($('people'),'Noch keine Personen erfasst.');
  for(const p of people){const label=document.createElement('label');const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.value=p.id;checkbox.checked=true;label.append(checkbox,document.createTextNode(' '+p.name));$('splitPeople').append(label);}
+ $('paymentFrom').replaceChildren();$('paymentTo').replaceChildren();$('paymentHistory').replaceChildren();
+ for(const p of people)for(const id of ['paymentFrom','paymentTo']){const o=document.createElement('option');o.value=p.id;o.textContent=p.name;$(id).append(o);}
+ $('paymentSave').disabled=people.length<2;
+ for(const p of payments){
+  const from=people.find(x=>x.id===p.from_person_id)?.name||'Unbekannt',to=people.find(x=>x.id===p.to_person_id)?.name||'Unbekannt';
+  const row=line($('paymentHistory'),from+' → '+to,(p.amount_cents/100).toFixed(2)+' '+selected.currency+' · '+p.paid_on);
+  const btn=document.createElement('button');btn.type='button';btn.className='secondary';btn.textContent='Rückgängig';
+  btn.addEventListener('click',async()=>{
+   if(!confirm('Erfasste Zahlung wirklich entfernen?'))return;
+   btn.disabled=true;const {data,error}=await client.from('fk_settlements').delete().eq('id',p.id).eq('trip_id',tripId).select('id');
+   if(error||!data?.length){$('paymentStatus').textContent='Entfernen fehlgeschlagen: '+(error?.message||'Keine Zahlung entfernt');btn.disabled=false;return;}
+   await loadDetail();$('paymentStatus').textContent='Zahlung entfernt.';
+  });row.append(btn);
+ }
+ if(!payments.length)line($('paymentHistory'),'Noch keine Zahlungen erfasst.');
  $('expenses').replaceChildren();
  for(const e of er.data){
  const payer=people.find(p=>p.id===e.person_id)?.name||'Unbekannt';
@@ -84,10 +101,11 @@ function renderBalances(expenses){
  $('totalExpenses').textContent=money(total);
  $('unallocatedExpenses').textContent=unallocatedCount?unallocatedCount+' Ausgabe(n) ohne gültige Aufteilung: '+money(unallocated)+' (nicht eingerechnet)':'Alle Ausgaben sind zugeordnet.';
  $('balances').replaceChildren();$('settlements').replaceChildren();
+ for(const p of payments){if(balance.has(p.from_person_id)&&balance.has(p.to_person_id)){balance.get(p.from_person_id).paid+=p.amount_cents;balance.get(p.to_person_id).paid-=p.amount_cents;}}
  const creditors=[],debtors=[];
  for(const p of people){
   const b=balance.get(p.id),net=b.paid-b.share;
-  line($('balances'),p.name,'Bezahlt '+money(b.paid)+' · Anteil '+money(b.share)+' · Saldo '+(net>0?'+':'')+money(net));
+  line($('balances'),p.name,'Netto bezahlt (inkl. Ausgleich) '+money(b.paid)+' · Anteil '+money(b.share)+' · Offener Saldo '+(net>0?'+':'')+money(net));
   if(net>0)creditors.push({name:p.name,amount:net});
   if(net<0)debtors.push({name:p.name,amount:-net});
  }
@@ -104,6 +122,24 @@ function renderBalances(expenses){
  if(!$('settlements').children.length)line($('settlements'),'Keine Ausgleichszahlungen nötig.');
 }
 
+$('paymentForm').addEventListener('submit',async event=>{
+ event.preventDefault();const button=$('paymentSave');button.disabled=true;
+ try{
+  if(!selected)throw new Error('Bitte Reise öffnen.');
+  const from=$('paymentFrom').value,to=$('paymentTo').value;
+  if(!from||!to||from===to)throw new Error('Zwei unterschiedliche Personen auswählen.');
+  const raw=$('paymentAmount').value.trim().replace(',','.');
+  if(!/^[0-9]+(?:\.[0-9]{1,2})?$/.test(raw))throw new Error('Ungültiger Betrag.');
+  const cents=Math.round(Number(raw)*100);
+  if(!Number.isSafeInteger(cents)||cents<=0)throw new Error('Ungültiger Betrag.');
+  if(!$('paymentDate').value)throw new Error('Bitte Zahlungsdatum wählen.');
+  const {error}=await client.from('fk_settlements').insert({trip_id:selected.id,from_person_id:from,to_person_id:to,amount_cents:cents,paid_on:$('paymentDate').value});
+  if(error)throw error;
+  $('paymentAmount').value='';await loadDetail();$('paymentStatus').textContent='Ausgleichszahlung gespeichert.';
+ }catch(error){$('paymentStatus').textContent='Zahlung konnte nicht gespeichert werden: '+error.message;}
+ finally{button.disabled=false;}
+});
+$('paymentDate').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
 function resetExpenseEdit(){
  editingExpenseId=null;$('expenseform').reset();for(const box of $('splitPeople').querySelectorAll('input'))box.checked=true;$('expensesave').textContent='Ausgabe speichern';$('cancelEdit').hidden=true;
  $('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
