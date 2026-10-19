@@ -124,13 +124,14 @@ let importBackup=null;
 const importFile=$('importFile'),importTrip=$('importTrip'),importPreview=$('importPreview');
 const previewMoney=(c,cur)=>(c/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+cur;
 function renderImportPreview(){
+ $('importExecute').disabled=true;$('importStatus').textContent='';
  importPreview.replaceChildren();
  const trip=importBackup?.trips?.[Number(importTrip.value)];
  if(!trip)return;
  const info=document.createElement('div');info.className='import-review';importPreview.append(info);
  const add=(label,value)=>{const p=document.createElement('p');const b=document.createElement('strong');b.textContent=label+': ';p.append(b,document.createTextNode(String(value)));info.append(p);};
  const names=new Set(trip.people.map(p=>p.id));
- const invalid=trip.expenses.filter(e=>!names.has(e.payer)||!Array.isArray(e.shares)||!e.shares.length||e.shares.some(id=>!names.has(id))||!Number.isSafeInteger(e.amount)||e.amount<=0||!Number.isFinite(e.rate)||e.rate<=0);
+ const invalid=trip.expenses.filter(e=>!names.has(e.payer)||!Array.isArray(e.shares)||!e.shares.length||e.shares.some(id=>!names.has(id))||new Set(e.shares).size!==e.shares.length||!Number.isSafeInteger(e.amount)||e.amount<=0||!Number.isFinite(e.rate)||e.rate<=0||!Number.isFinite(e.amount*e.rate)||!Number.isSafeInteger(Math.round(e.amount*e.rate))||e.currency===trip.currency&&e.rate!==1||e.custom&&Object.keys(e.custom).length>0);
  const converted=trip.expenses.map(e=>Math.round(e.amount*e.rate));
  const sum=converted.reduce((a,b)=>a+b,0);
  add('Reise',trip.name);
@@ -151,7 +152,12 @@ function renderImportPreview(){
  }
  info.append(table);
  const note=document.createElement('p');note.className=invalid.length?'negative':'muted';
- note.textContent=invalid.length?'Achtung: '+invalid.length+' Ausgaben mit ungültigen Zuordnungen oder Beträgen.':'Vorschau erfolgreich. Es wurde nichts importiert. Für die Übernahme müssen Originalwährung und Kurs zusätzlich gespeichert werden.';
+ const validPeople=trip.people.length>0&&new Set(trip.people.map(p=>p.id)).size===trip.people.length&&trip.people.every(p=>typeof p.id==='string'&&typeof p.name==='string'&&p.name.trim().length>0);
+ const validPayments=(trip.payments||[]).every(p=>names.has(p.from)&&names.has(p.to)&&p.from!==p.to&&Number.isSafeInteger(p.cents)&&p.cents>0);
+ const validRates=Object.entries(trip.rates||{}).every(([c,r])=>/^[A-Z]{3}$/.test(c)&&Number.isFinite(r)&&r>0);
+ const canImport=!invalid.length&&validPeople&&validPayments&&validRates&&trip.expenses.length<=2000&&(trip.payments||[]).length<=2000;
+ note.textContent=canImport?'Vorschau erfolgreich. Die Reise kann als separate Kopie importiert werden.':'Import gesperrt: Bitte Personen, Aufteilungen, Beträge, Kurse oder Zahlungen prüfen.';
+ $('importExecute').disabled=!canImport;
  info.append(note);
 }
 importFile.addEventListener('change',async()=>{
@@ -170,6 +176,19 @@ importFile.addEventListener('change',async()=>{
  }catch(error){importPreview.textContent='Datei konnte nicht geprüft werden: '+error.message;}
 });
 importTrip.addEventListener('change',renderImportPreview);
+$('importExecute').addEventListener('click',async()=>{
+ const trip=importBackup?.trips?.[Number(importTrip.value)];if(!trip||$('importExecute').disabled)return;
+ if(!confirm('Reise „'+trip.name+'“ mit '+trip.people.length+' Personen und '+trip.expenses.length+' Ausgaben als NEUE Reise in Ferienkasse 1.3 importieren? Bestehende Reisen werden nicht überschrieben.'))return;
+ $('importExecute').disabled=true;$('importStatus').textContent='Import läuft …';
+ try{
+  const {data,error}=await client.rpc('fk_import_legacy_trip',{p_trip:trip});
+  if(error)throw error;
+  $('importStatus').textContent='Import erfolgreich. Neue Reise wurde erstellt.';
+  await refresh();
+  const {data:created,error:lookupError}=await client.from('fk_trips').select('id,name,currency,owner_id').eq('id',data).single();
+  if(!lookupError&&created)await openTrip(created);
+ }catch(error){$('importStatus').textContent='Import fehlgeschlagen (keine Teilübernahme): '+error.message;$('importExecute').disabled=false;}
+});
 
 const invitationToken=new URLSearchParams(location.search).get('invite');
 const status=message=>{$('status').textContent=message;};
