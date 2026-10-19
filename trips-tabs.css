@@ -25,3 +25,12 @@
  #printArea th,#printArea td{padding:2.5mm;text-align:left;border-bottom:1px solid #ddd;vertical-align:top;overflow-wrap:anywhere}
  #printArea tr{break-inside:avoid}
 }
+
+/* v15: Ansichten strikt trennen – auch bei alten zwischengespeicherten Styles */
+.trip-detail .trip-view[hidden]{display:none!important}
+.trip-detail .trip-view:not([hidden]){display:block}
+.trip-tabs{flex-wrap:wrap!important}
+.trip-tabs button{flex:1 1 auto!important;min-width:calc(33.333% - 8px)!important}
+.trip-view .heading{align-items:center;margin-bottom:14px}
+.trip-view .heading h3{margin:0}
+@media(max-width:520px){.trip-tabs button{min-width:calc(50% - 8px)!important}}
