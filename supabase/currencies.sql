@@ -25,12 +25,12 @@ update public.fk_expenses set original_amount_cents=amount_cents,original_curren
 where original_amount_cents is null or original_currency is null or exchange_rate is null;
 -- Rückwärtskompatibilität für ältere Clients/RPCs, die nur den CHF-Betrag schreiben.
 create or replace function public.fk_fill_original_currency() returns trigger language plpgsql set search_path=''
-as $ begin
+as $tag$ begin
  if new.original_amount_cents is null then new.original_amount_cents:=new.amount_cents; end if;
  if new.original_currency is null then new.original_currency:=new.currency; end if;
  if new.exchange_rate is null then new.exchange_rate:=1; end if;
  return new;
-end; $;
+end; $tag$;
 drop trigger if exists fk_fill_original_currency_trigger on public.fk_expenses;
 create trigger fk_fill_original_currency_trigger before insert on public.fk_expenses
 for each row execute function public.fk_fill_original_currency();
