@@ -62,9 +62,48 @@ async function loadDetail(){
  row.append(edit,del);
 }
  if(!er.data.length)line($('expenses'),'Noch keine Ausgaben erfasst.');
+ renderBalances(er.data);
  $('expensesave').disabled=!people.length;
  status('Reisedaten aus Supabase geladen.');
 }
+
+function renderBalances(expenses){
+ const money=cents=>(cents/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+selected.currency;
+ const balance=new Map(people.map(p=>[p.id,{name:p.name,paid:0,share:0}]));
+ let total=0,unallocated=0,unallocatedCount=0;
+ for(const e of expenses){
+  const portions=splits.filter(s=>s.expense_id===e.id);
+  const sum=portions.reduce((n,s)=>n+s.amount_cents,0);
+  if(!portions.length||sum!==e.amount_cents||!balance.has(e.person_id)||portions.some(s=>!balance.has(s.person_id))){
+   unallocated+=e.amount_cents;unallocatedCount++;continue;
+  }
+  total+=e.amount_cents;
+  balance.get(e.person_id).paid+=e.amount_cents;
+  for(const s of portions)balance.get(s.person_id).share+=s.amount_cents;
+ }
+ $('totalExpenses').textContent=money(total);
+ $('unallocatedExpenses').textContent=unallocatedCount?unallocatedCount+' Ausgabe(n) ohne gültige Aufteilung: '+money(unallocated)+' (nicht eingerechnet)':'Alle Ausgaben sind zugeordnet.';
+ $('balances').replaceChildren();$('settlements').replaceChildren();
+ const creditors=[],debtors=[];
+ for(const p of people){
+  const b=balance.get(p.id),net=b.paid-b.share;
+  line($('balances'),p.name,'Bezahlt '+money(b.paid)+' · Anteil '+money(b.share)+' · Saldo '+(net>0?'+':'')+money(net));
+  if(net>0)creditors.push({name:p.name,amount:net});
+  if(net<0)debtors.push({name:p.name,amount:-net});
+ }
+ creditors.sort((a,b)=>b.amount-a.amount);debtors.sort((a,b)=>b.amount-a.amount);
+ let i=0,k=0;
+ while(i<debtors.length&&k<creditors.length){
+  const value=Math.min(debtors[i].amount,creditors[k].amount);
+  line($('settlements'),debtors[i].name+' → '+creditors[k].name,money(value));
+  debtors[i].amount-=value;creditors[k].amount-=value;
+  if(!debtors[i].amount)i++;
+  if(!creditors[k].amount)k++;
+ }
+ if(!people.length)line($('balances'),'Noch keine Personen vorhanden.');
+ if(!$('settlements').children.length)line($('settlements'),'Keine Ausgleichszahlungen nötig.');
+}
+
 function resetExpenseEdit(){
  editingExpenseId=null;$('expenseform').reset();for(const box of $('splitPeople').querySelectorAll('input'))box.checked=true;$('expensesave').textContent='Ausgabe speichern';$('cancelEdit').hidden=true;
  $('date').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
