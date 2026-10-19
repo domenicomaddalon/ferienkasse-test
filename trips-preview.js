@@ -23,35 +23,90 @@ $('toggleExpenses').addEventListener('click',()=>{const list=$('expenses');list.
 function printReport(){
  if(!selected)return;
  const area=$('printArea');area.replaceChildren();
- const add=(tag,text,parent=area)=>{const el=document.createElement(tag);el.textContent=text;parent.append(el);return el;};
+ const add=(tag,value,parent=area,cls='')=>{const el=document.createElement(tag);el.textContent=String(value);if(cls)el.className=cls;parent.append(el);return el;};
  const money=c=>(c/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+selected.currency;
  const name=id=>people.find(p=>p.id===id)?.name||'Unbekannt';
  const table=(headers,rows)=>{
-  const t=document.createElement('table'),head=document.createElement('thead'),tr=document.createElement('tr');
-  for(const x of headers)add('th',x,tr);head.append(tr);t.append(head);
-  const body=document.createElement('tbody');
-  for(const row of rows){const line=document.createElement('tr');for(const value of row)add('td',String(value),line);body.append(line);}
-  t.append(body);area.append(t);
+  const t=document.createElement('table'),thead=document.createElement('thead'),tr=document.createElement('tr');
+  for(const title of headers)add('th',title,tr);
+  thead.append(tr);t.append(thead);const tbody=document.createElement('tbody');
+  for(const values of rows){const row=document.createElement('tr');for(const value of values)add('td',value,row);tbody.append(row);}
+  t.append(tbody);area.append(t);
  };
- add('h1','Ferienkasse – '+selected.name);
- add('p','Abrechnung in '+selected.currency+' · Erstellt am '+new Date().toLocaleDateString('de-CH'));
- add('h2','Ausgaben');
- table(['Datum','Beschreibung','Kategorie','Bezahlt von','Betrag','Kostenaufteilung'],reportExpenses.map(e=>{
+ const expenses=reportExpenses;
+ const total=expenses.reduce((sum,e)=>sum+e.amount_cents,0);
+ const byCategory=new Map(),byPayer=new Map();
+ for(const e of expenses){
+  const category=e.category||'Diverses';
+  byCategory.set(category,(byCategory.get(category)||0)+e.amount_cents);
+  const payer=name(e.person_id);byPayer.set(payer,(byPayer.get(payer)||0)+e.amount_cents);
+ }
+ const colors=['#176f86','#3c86b1','#e7a94b','#568b66','#9a70b3','#cc6f67','#6989a1','#b5a05a','#777d90'];
+ const breakdown=(title,entries,chartType)=>{
+  add('h2',title);
+  if(!entries.length){add('p','Keine Ausgaben vorhanden.');return;}
+  const section=document.createElement('div');section.className='report-chart';area.append(section);
+  const max=Math.max(...entries.map(x=>x[1]),1);
+  const totalAmount=entries.reduce((sum,x)=>sum+x[1],0);
+  if(chartType==='donut'&&totalAmount>0){
+   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+   svg.setAttribute('viewBox','0 0 180 180');svg.setAttribute('role','img');svg.setAttribute('aria-label','Kategorienanteile als Kreisdiagramm');svg.classList.add('report-donut');
+   let offset=0;
+   entries.forEach(([label,value],i)=>{
+    const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('cx','90');circle.setAttribute('cy','90');circle.setAttribute('r','65');
+    circle.setAttribute('fill','none');circle.setAttribute('stroke',colors[i%colors.length]);
+    circle.setAttribute('stroke-width','28');circle.setAttribute('pathLength','100');
+    circle.setAttribute('stroke-dasharray',(value/totalAmount*100)+' '+(100-value/totalAmount*100));
+    circle.setAttribute('stroke-dashoffset',String(-offset));
+    circle.setAttribute('transform','rotate(-90 90 90)');
+    svg.append(circle);offset+=value/totalAmount*100;
+   });
+   const center=document.createElementNS('http://www.w3.org/2000/svg','text');
+   center.setAttribute('x','90');center.setAttribute('y','91');center.setAttribute('text-anchor','middle');
+   center.setAttribute('font-size','15');center.setAttribute('font-weight','bold');center.setAttribute('fill','#17324d');
+   center.textContent='100 %';svg.append(center);section.append(svg);
+  }
+  const rows=add('div','',section,'report-chart-rows');
+  entries.forEach(([label,value],i)=>{
+   const row=add('div','',rows,'report-chart-row');
+   const top=add('div','',row,'report-chart-label');
+   const left=add('span',label,top);
+   left.style.borderLeft='9px solid '+colors[i%colors.length];left.style.paddingLeft='7px';
+   add('strong',money(value)+' · '+(totalAmount? (value/totalAmount*100).toLocaleString('de-CH',{maximumFractionDigits:1}):'0')+' %',top);
+   const track=add('div','',row,'report-chart-track');
+   const bar=add('div','',track,'report-chart-bar');
+   bar.style.width=(value/max*100)+'%';bar.style.backgroundColor=colors[i%colors.length];
+  });
+ };
+ add('h1','Ferienkasse · '+selected.name);
+ add('p','Abrechnung in '+selected.currency+' · '+new Date().toLocaleDateString('de-CH'),area,'report-meta');
+ const stats=add('div','',area,'report-summary');
+ const summary=(title,value)=>{const block=add('div','',stats,'report-summary-item');add('span',title,block);add('strong',value,block);};
+ summary('Gesamtausgaben',money(total));summary('Ausgaben',expenses.length);summary('Teilnehmende',people.length);
+ const categoryEntries=[...byCategory].sort((a,b)=>b[1]-a[1]);
+ const payerEntries=[...byPayer].sort((a,b)=>b[1]-a[1]);
+ breakdown('Ausgaben nach Kategorien',categoryEntries,'donut');
+ breakdown('Ausgaben nach zahlender Person',payerEntries,'bar');
+ add('h2','Einzelne Ausgaben');
+ table(['Datum','Beschreibung','Kategorie','Bezahlt von','Betrag','Kostenaufteilung'],expenses.map(e=>{
   const portions=splits.filter(x=>x.expense_id===e.id);
   return [e.expense_date,e.description,e.category||'Diverses',name(e.person_id),money(e.amount_cents),portions.length?portions.map(p=>name(p.person_id)+': '+money(p.amount_cents)).join('; '):'Nicht zugeordnet'];
  }));
- add('h2','Salden pro Person');
  const balance=new Map(people.map(p=>[p.id,{paid:0,share:0}]));
- for(const e of reportExpenses){
+ let excluded=0;
+ for(const e of expenses){
   const portions=splits.filter(x=>x.expense_id===e.id);
-  if(!portions.length||portions.reduce((a,x)=>a+x.amount_cents,0)!==e.amount_cents||!balance.has(e.person_id)||portions.some(x=>!balance.has(x.person_id)))continue;
+  if(!portions.length||portions.reduce((sum,x)=>sum+x.amount_cents,0)!==e.amount_cents||!balance.has(e.person_id)||portions.some(x=>!balance.has(x.person_id))){excluded+=e.amount_cents;continue;}
   balance.get(e.person_id).paid+=e.amount_cents;
   for(const p of portions)balance.get(p.person_id).share+=p.amount_cents;
  }
  for(const p of payments)if(balance.has(p.from_person_id)&&balance.has(p.to_person_id)){
   balance.get(p.from_person_id).paid+=p.amount_cents;balance.get(p.to_person_id).paid-=p.amount_cents;
  }
- table(['Person','Netto bezahlt','Kostenanteil','Offener Saldo'],people.map(p=>{
+ add('h2','Salden pro Person');
+ if(excluded)add('p','Hinweis: '+money(excluded)+' ohne gültige Kostenaufteilung sind in den Salden nicht berücksichtigt.');
+ table(['Person','Netto bezahlt inkl. Ausgleich','Kostenanteil','Offener Saldo'],people.map(p=>{
   const b=balance.get(p.id);return[p.name,money(b.paid),money(b.share),money(b.paid-b.share)];
  }));
  add('h2','Offene Ausgleichszahlungen');
