@@ -443,7 +443,7 @@ async function init(){
  const {data:{session},error}=await client.auth.getSession();
  if(error||!session){showSignedOut();if(invitationToken){$('invitation').hidden=false;$('inviteMessage').textContent='Bitte zuerst anmelden. Danach diesen Einladungslink erneut öffnen.';}return;}
  $('account').textContent='Angemeldet als '+(session.user.email||'Benutzer');
- $('workspace').hidden=false;$('results').hidden=false;$('login').hidden=true;
+ $('workspace').hidden=false;$('migration').hidden=false;$('results').hidden=false;$('login').hidden=true;
  if(invitationToken){$('invitation').hidden=false;$('inviteMessage').textContent='Du wurdest zu einer Reise eingeladen. Mit „Einladung annehmen“ trittst du bei.';}
  await refresh();
 }
